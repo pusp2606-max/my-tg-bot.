@@ -1,58 +1,89 @@
 import os
-import asyncio
+import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-API_TOKEN = os.getenv('API_TOKEN')
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+bot = Bot(token=os.getenv('API_TOKEN'))
+dp = Dispatcher(storage=MemoryStorage())
 
-# Список стран с ценами (на русском)
-countries = {
-    "🇵🇰 Пакистан": "$0.0050", "🇳🇪 Нигер": "$0.0050", "🇬🇭 Гана": "$0.0050",
-    "🇳🇬 Нигерия (Топ 1)": "$0.0050", "🇳🇬 Нигерия (Новые)": "$0.0050", "🇪🇹 Эфиопия": "$0.0050",
-    "🇲🇿 Мозамбик 2": "$0.0050", "🇪🇨 Эквадор 2": "$0.0060", "🇮🇶 Ирак WS+FB 2": "$0.0050",
-    "🇹🇯 Таджикистан 2": "$0.0050", "🇰🇬 Кыргызстан 2": "$0.0050"
-}
+# База данных
+conn = sqlite3.connect('dating.db', check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, age TEXT, photo TEXT)')
+cursor.execute('CREATE TABLE IF NOT EXISTS likes (user_id INTEGER, liked_id INTEGER)')
+conn.commit()
 
-# Нижняя панель (переведена)
-def get_main_menu():
-    builder = ReplyKeyboardBuilder()
-    builder.row(types.KeyboardButton(text="📞 Получить номер"), types.KeyboardButton(text="❓ Доступные страны"))
-    builder.row(types.KeyboardButton(text="📊 Статус"), types.KeyboardButton(text="💰 Баланс"))
-    builder.row(types.KeyboardButton(text="💸 Вывод средств"), types.KeyboardButton(text="🌐 Live Traffic"))
-    return builder.as_markup(resize_keyboard=True)
+class Profile(StatesGroup):
+    name = State(); age = State(); photo = State()
 
-# Выбор сервиса
-@dp.message(F.text == "📞 Получить номер")
-async def get_number(message: types.Message):
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="🔵 WhatsApp 1", callback_data="svc_wa1"))
-    builder.row(types.InlineKeyboardButton(text="🔵 WhatsApp 2", callback_data="svc_wa2"))
-    await message.answer("Выберите сервис:", reply_markup=builder.as_markup())
-
-# Выбор страны
-@dp.callback_query(F.data.startswith("svc_"))
-async def choose_country(callback: types.CallbackQuery):
-    builder = InlineKeyboardBuilder()
-    for name, price in countries.items():
-        # Заменяем пробелы на подчеркивания для технической части
-        builder.row(types.InlineKeyboardButton(text=f"{name} | {price}", callback_data=f"cty_{name.replace(' ', '_')}"))
-    await callback.message.edit_text("Выберите страну:", reply_markup=builder.as_markup())
-
-# Финал
-@dp.callback_query(F.data.startswith("cty_"))
-async def final_step(callback: types.CallbackQuery):
-    country = callback.data.split("_")[1].replace("_", " ")
-    await callback.message.edit_text(f"✅ Вы выбрали: {country}\n\nДля покупки напишите владельцу: @erastxx1")
+def get_vote_kb(user_id):
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="❤️ Лайк", callback_data=f"like_{user_id}"))
+    kb.row(types.InlineKeyboardButton(text="👎 Дизлайк", callback_data="skip"))
+    return kb.as_markup()
 
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    await message.answer("Добро пожаловать в панель управления!", reply_markup=get_main_menu())
+async def start(message: types.Message, state: FSMContext):
+    await message.answer("👋 **Добро пожаловать в  Erast Dating Abkhazia!**\n\nДавай создадим твою анкету.\nКак тебя зовут?")
+    await state.set_state(Profile.name)
 
-async def main():
-    await dp.start_polling(bot)
+@dp.message(Profile.name)
+async def p_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("Сколько тебе лет?")
+    await state.set_state(Profile.age)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@dp.message(Profile.age)
+async def p_age(message: types.Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await message.answer("Пришли своё лучшее фото (одним файлом):")
+    await state.set_state(Profile.photo)
+
+@dp.message(Profile.photo)
+async def p_photo(message: types.Message, state: FSMContext):
+    if not message.photo:
+        await message.answer("Пожалуйста, пришли именно фото.")
+        return
+    photo_id = message.photo[-1].file_id
+    data = await state.get_data()
+    cursor.execute('INSERT OR REPLACE INTO users VALUES (?,?,?,?)', (message.from_user.id, data['name'], data['age'], photo_id))
+    conn.commit()
+    await message.answer("✅ **Анкета создана!**\n\nИспользуй команду /find, чтобы начать знакомиться!")
+    await state.clear()
+
+@dp.message(Command("find"))
+async def find(message: types.Message):
+    cursor.execute('SELECT * FROM users WHERE id != ? ORDER BY RANDOM() LIMIT 1', (message.from_user.id,))
+    user = cursor.fetchone()
+    if user:
+        await bot.send_photo(message.chat.id, user[3], caption=f"👤 **{user[1]}**, {user[2]} лет", reply_markup=get_vote_kb(user[0]))
+    else:
+        await message.answer("Пока нет новых анкет. Расскажи друзьям о нашем боте!")
+
+@dp.callback_query(F.data.startswith("like_"))
+async def vote(callback: types.CallbackQuery):
+    liked_id = int(callback.data.split("_")[1])
+    cursor.execute('INSERT INTO likes VALUES (?,?)', (callback.from_user.id, liked_id))
+    conn.commit()
+    
+    # Проверка на взаимность (Мэтч)
+    cursor.execute('SELECT * FROM likes WHERE user_id = ? AND liked_id = ?', (liked_id, callback.from_user.id))
+    if cursor.fetchone():
+        await bot.send_message(callback.from_user.id, f"🔥 **МЭТЧ!**\nПиши человеку: tg://user?id={liked_id}")
+        await bot.send_message(liked_id, f"🔥 **МЭТЧ!**\nПиши человеку: tg://user?id={callback.from_user.id}")
+    
+    await callback.message.delete()
+    await find(callback.message)
+
+@dp.callback_query(F.data == "skip")
+async def skip(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await find(callback.message)
+
+async def main(): await dp.start_polling(bot)
+
+if __name__ == "__main__": asyncio.run(main())
