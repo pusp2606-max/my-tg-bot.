@@ -28,7 +28,7 @@ def get_vote_kb(user_id):
 
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
-    await message.answer("👋 **Добро пожаловать в  Erast Dating Abkhazia!**\n\nДавай создадим твою анкету.\nКак тебя зовут?")
+    await message.answer("👋 **Добро пожаловать в Dating Abkhazia!**\n\nДавай создадим твою анкету.\nКак тебя зовут?")
     await state.set_state(Profile.name)
 
 @dp.message(Profile.name)
