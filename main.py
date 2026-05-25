@@ -8,10 +8,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+# Инициализация
 bot = Bot(token=os.getenv('API_TOKEN'))
 dp = Dispatcher(storage=MemoryStorage())
 
-# --- БАЗА ДАННЫХ ---
+# База данных
 conn = sqlite3.connect('dating_pro.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS users 
@@ -22,7 +23,7 @@ conn.commit()
 class Profile(StatesGroup):
     name = State(); bio = State(); city = State(); photo = State()
 
-# --- МЕНЮ ---
+# --- КЛАВИАТУРЫ ---
 def get_main_kb():
     kb = InlineKeyboardBuilder()
     kb.button(text="👤 Моя анкета", callback_data="my_profile")
@@ -33,16 +34,16 @@ def get_main_kb():
 
 def get_profile_kb():
     kb = InlineKeyboardBuilder()
-    kb.button(text="📝 Заново", callback_data="register_again")
-    kb.button(text="🖼 Фото", callback_data="edit_photo")
-    kb.button(text="✏️ Текст", callback_data="edit_bio")
+    kb.button(text="📝 Заполнить заново", callback_data="register_again")
+    kb.button(text="🖼 Изменить фото", callback_data="edit_photo")
+    kb.button(text="✏️ Изменить текст", callback_data="edit_bio")
     kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="start"))
     return kb.as_markup()
 
 # --- ЛОГИКА ---
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("✨ **ERAST Dating — Номер 1 в Абхазии**\n\n<i>Найди свою пару прямо сейчас.</i>", 
+    await message.answer("✨ **ERAST Dating — Номер 1 в Абхазии**\n\nНайди свою пару прямо сейчас.", 
                          reply_markup=get_main_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "start")
@@ -57,6 +58,7 @@ async def show_profile(callback: types.CallbackQuery):
         caption=f"👤 **{user[1]}**, {user[4]}\n\n📝 *О себе:* {user[2]}",
         reply_markup=get_profile_kb(), parse_mode="Markdown")
 
+# Редактирование
 @dp.callback_query(F.data == "edit_bio")
 async def edit_bio(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("✏️ Напиши новый текст:"); await state.set_state(Profile.bio)
@@ -75,28 +77,31 @@ async def update_photo(message: types.Message, state: FSMContext):
     cursor.execute('UPDATE users SET photo_id = ? WHERE id = ?', (message.photo[-1].file_id, message.from_user.id)); conn.commit()
     await message.answer("✅ Фото обновлено!"); await state.clear()
 
+# Регистрация (полная)
 @dp.message(Command("register"))
 async def reg(message: types.Message, state: FSMContext):
     await message.answer("Как зовут?"); await state.set_state(Profile.name)
 
 @dp.message(Profile.name)
-async def reg2(message: types.Message, state: FSMContext):
+async def reg_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text); await message.answer("Город?"); await state.set_state(Profile.city)
 
 @dp.message(Profile.city)
-async def reg3(message: types.Message, state: FSMContext):
+async def reg_city(message: types.Message, state: FSMContext):
     await state.update_data(city=message.text); await message.answer("О себе:"); await state.set_state(Profile.bio)
 
 @dp.message(Profile.bio)
-async def reg4(message: types.Message, state: FSMContext):
+async def reg_bio(message: types.Message, state: FSMContext):
     await state.update_data(bio=message.text); await message.answer("Фото:"); await state.set_state(Profile.photo)
 
 @dp.message(Profile.photo)
-async def reg5(message: types.Message, state: FSMContext):
+async def reg_finish(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    cursor.execute('INSERT OR REPLACE INTO users VALUES (?,?,?,?,?,?)', (message.from_user.id, data['name'], data['bio'], message.photo[-1].file_id, data['city'], 0))
-    conn.commit(); await message.answer("✅ Готово! Нажми /start"); await state.clear()
+    cursor.execute('INSERT OR REPLACE INTO users VALUES (?,?,?,?,?,?)', 
+                   (message.from_user.id, data['name'], data['bio'], message.photo[-1].file_id, data['city'], 0))
+    conn.commit(); await message.answer("✅ Профиль готов! /start"); await state.clear()
 
+# Поиск
 @dp.callback_query(F.data == "find_dating")
 async def find(callback: types.CallbackQuery):
     res = cursor.execute('SELECT city FROM users WHERE id = ?', (callback.from_user.id,)).fetchone()
@@ -107,18 +112,6 @@ async def find(callback: types.CallbackQuery):
         kb.button(text="❤️ Лайк", callback_data=f"like_{user[0]}"); kb.button(text="👎 Дизлайк", callback_data="skip")
         await bot.send_photo(callback.from_user.id, user[3], caption=f"👤 {user[1]}, {user[4]}\n📝 {user[2]}", reply_markup=kb.as_markup())
     else: await callback.message.answer("В твоем городе пока пусто.")
-
-@dp.callback_query(F.data.startswith("like_"))
-async def vote(callback: types.CallbackQuery):
-    liked_id = int(callback.data.split("_")[1])
-    cursor.execute('INSERT INTO likes VALUES (?,?)', (callback.from_user.id, liked_id)); conn.commit()
-    if cursor.execute('SELECT * FROM likes WHERE user_id = ? AND liked_id = ?', (liked_id, callback.from_user.id)).fetchone():
-        await bot.send_message(callback.from_user.id, f"🔥 МЭТЧ! @id{liked_id}")
-        await bot.send_message(liked_id, f"🔥 МЭТЧ! @id{callback.from_user.id}")
-    await callback.message.delete(); await find(callback)
-
-@dp.callback_query(F.data == "skip")
-async def skip(callback: types.CallbackQuery): await callback.message.delete(); await find(callback)
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
