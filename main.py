@@ -1,4 +1,5 @@
 import os
+import asyncio
 import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -7,7 +8,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-bot = Bot(token=os.getenv('API_TOKEN'))
+# Инициализация бота
+API_TOKEN = os.getenv('API_TOKEN')
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 # База данных
@@ -69,13 +72,10 @@ async def vote(callback: types.CallbackQuery):
     liked_id = int(callback.data.split("_")[1])
     cursor.execute('INSERT INTO likes VALUES (?,?)', (callback.from_user.id, liked_id))
     conn.commit()
-    
-    # Проверка на взаимность (Мэтч)
     cursor.execute('SELECT * FROM likes WHERE user_id = ? AND liked_id = ?', (liked_id, callback.from_user.id))
     if cursor.fetchone():
         await bot.send_message(callback.from_user.id, f"🔥 **МЭТЧ!**\nПиши человеку: tg://user?id={liked_id}")
         await bot.send_message(liked_id, f"🔥 **МЭТЧ!**\nПиши человеку: tg://user?id={callback.from_user.id}")
-    
     await callback.message.delete()
     await find(callback.message)
 
@@ -84,6 +84,8 @@ async def skip(callback: types.CallbackQuery):
     await callback.message.delete()
     await find(callback.message)
 
-async def main(): await dp.start_polling(bot)
+async def main():
+    await dp.start_polling(bot)
 
-if __name__ == "__main__": asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
