@@ -24,7 +24,11 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
-    profile TEXT
+    name TEXT,
+    age TEXT,
+    city TEXT,
+    bio TEXT,
+    photo TEXT
 )
 """)
 
@@ -44,45 +48,108 @@ menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-last_view = {}
+register_step = {}
+temp_data = {}
+last_profile = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "❤️ Добро пожаловать в LoveBot Абхазия\n\n"
-        "Отправь анкету одним сообщением\n\n"
-        "Пример:\n"
-        "Аслан, 22, Сухум\nЛюблю море и спорт"
-    )
-
-async def save_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
     uid = update.message.from_user.id
 
+    register_step[uid] = "name"
+    temp_data[uid] = {}
+
+    await update.message.reply_text(
+        "❤️ Добро пожаловать\n\nКак тебя зовут?"
+    )
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+    text = update.message.text
+
     if text == "🔍 Смотреть анкеты":
-        await show_profile(update)
+        await show_profile(update, context)
         return
 
     if text == "❤️":
-        await like_profile(update)
+        await like(update, context)
         return
 
     if text == "👎":
-        await skip_profile(update)
+        await skip(update, context)
         return
+
+    if uid not in register_step:
+        return
+
+    step = register_step[uid]
+
+    if step == "name":
+        temp_data[uid]["name"] = text
+        register_step[uid] = "age"
+
+        await update.message.reply_text(
+            "Сколько тебе лет?"
+        )
+
+    elif step == "age":
+        temp_data[uid]["age"] = text
+        register_step[uid] = "city"
+
+        await update.message.reply_text(
+            "Из какого ты города?"
+        )
+
+    elif step == "city":
+        temp_data[uid]["city"] = text
+        register_step[uid] = "bio"
+
+        await update.message.reply_text(
+            "Напиши описание о себе"
+        )
+
+    elif step == "bio":
+        temp_data[uid]["bio"] = text
+        register_step[uid] = "photo"
+
+        await update.message.reply_text(
+            "Теперь отправь фото 📸"
+        )
+
+async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+
+    if uid not in register_step:
+        return
+
+    if register_step[uid] != "photo":
+        return
+
+    photo = update.message.photo[-1].file_id
+
+    data = temp_data[uid]
 
     cursor.execute("""
     INSERT OR REPLACE INTO users
-    VALUES (?, ?)
-    """, (uid, text))
+    VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        uid,
+        data["name"],
+        data["age"],
+        data["city"],
+        data["bio"],
+        photo
+    ))
 
     conn.commit()
+
+    del register_step[uid]
 
     await update.message.reply_text(
         "✅ Анкета сохранена",
         reply_markup=menu
     )
 
-async def show_profile(update):
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
 
     cursor.execute("""
@@ -93,12 +160,14 @@ async def show_profile(update):
     users = cursor.fetchall()
 
     if not users:
-        await update.message.reply_text("Анкет пока нет")
+        await update.message.reply_text(
+            "Анкет пока нет"
+        )
         return
 
     target = random.choice(users)
 
-    last_view[uid] = target[0]
+    last_profile[uid] = target[0]
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
@@ -107,18 +176,27 @@ async def show_profile(update):
         resize_keyboard=True
     )
 
-    await update.message.reply_text(
-        f"❤️ Анкета:\n\n{target[1]}",
+    text = f"""
+❤️ {target[1]}, {target[2]}
+📍 {target[3]}
+
+{target[4]}
+"""
+
+    await context.bot.send_photo(
+        chat_id=update.effective_chat.id,
+        photo=target[5],
+        caption=text,
         reply_markup=keyboard
     )
 
-async def like_profile(update):
+async def like(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
 
-    if uid not in last_view:
+    if uid not in last_profile:
         return
 
-    target = last_view[uid]
+    target = last_profile[uid]
 
     cursor.execute("""
     INSERT INTO likes
@@ -136,7 +214,7 @@ async def like_profile(update):
 
     if match:
         await update.message.reply_text(
-            "🎉 Взаимная симпатия!"
+            "🎉 У вас взаимная симпатия!"
         )
 
     else:
@@ -144,10 +222,10 @@ async def like_profile(update):
             "❤️ Лайк отправлен"
         )
 
-    await show_profile(update)
+    await show_profile(update, context)
 
-async def skip_profile(update):
-    await show_profile(update)
+async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_profile(update, context)
 
 app = ApplicationBuilder().token(TOKEN).build()
 
@@ -156,7 +234,14 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(
     MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        save_profile
+        text_handler
+    )
+)
+
+app.add_handler(
+    MessageHandler(
+        filters.PHOTO,
+        photo_handler
     )
 )
 
