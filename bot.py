@@ -1,142 +1,165 @@
+import sqlite3
+import random
 import os
-import asyncio
-import aiosqlite
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ContextTypes, filters, ConversationHandler
+
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton
 )
 
-# Этапы
-BIO, PHOTO, REGION, INTERESTS = range(4)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
-def main_menu():
-    return ReplyKeyboardMarkup([
-        [KeyboardButton("📇 Мой профиль"), KeyboardButton("🔎 Поиск")],
-        [KeyboardButton("⚙️ Настройки")]
-    ], resize_keyboard=True)
+TOKEN = os.getenv("BOT_TOKEN")
 
-async def init_db():
-    async with aiosqlite.connect("bot.db") as db:
-        await db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, bio TEXT, photo TEXT, region TEXT, interests TEXT)")
-        await db.execute("CREATE TABLE IF NOT EXISTS likes (user_id INTEGER, liked_id INTEGER)")
-        await db.commit()
+conn = sqlite3.connect("dating.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    profile TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS likes (
+    from_user INTEGER,
+    to_user INTEGER
+)
+""")
+
+conn.commit()
+
+menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton("🔍 Смотреть анкеты")]
+    ],
+    resize_keyboard=True
+)
+
+last_view = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    name = update.effective_user.full_name
-    async with aiosqlite.connect("bot.db") as db:
-        async with db.execute("SELECT id FROM users WHERE id = ?", (user_id,)) as cursor:
-            if not await cursor.fetchone():
-                await db.execute("INSERT INTO users(id, name) VALUES(?, ?)", (user_id, name))
-                await db.commit()
-    await update.message.reply_text("Привет! Это Abkhazia Dating Bot ❤️\nИспользуй /setprofile для создания профиля.", reply_markup=main_menu())
+    await update.message.reply_text(
+        "❤️ Добро пожаловать в LoveBot Абхазия\n\n"
+        "Отправь анкету одним сообщением\n\n"
+        "Пример:\n"
+        "Аслан, 22, Сухум\nЛюблю море и спорт"
+    )
 
-async def setprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Напиши коротко о себе (био):")
-    return BIO
+async def save_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    uid = update.message.from_user.id
 
-async def bio_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    async with aiosqlite.connect("bot.db") as db:
-        await db.execute("UPDATE users SET bio=? WHERE id=?", (update.message.text, update.effective_user.id))
-        await db.commit()
-    await update.message.reply_text("Отлично! Пришли фото для профиля.")
-    return PHOTO
-
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.photo:
-        await update.message.reply_text("Пожалуйста, отправь именно фото.")
-        return PHOTO
-    async with aiosqlite.connect("bot.db") as db:
-        await db.execute("UPDATE users SET photo=? WHERE id=?", (update.message.photo[-1].file_id, update.effective_user.id))
-        await db.commit()
-    await update.message.reply_text("Фото сохранено! Напиши свой регион:")
-    return REGION
-
-async def region_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    async with aiosqlite.connect("bot.db") as db:
-        await db.execute("UPDATE users SET region=? WHERE id=?", (update.message.text.strip(), update.effective_user.id))
-        await db.commit()
-    await update.message.reply_text("Напиши свои интересы через запятую:")
-    return INTERESTS
-
-async def interests_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    interests = ",".join([i.strip().lower() for i in update.message.text.split(",")])
-    async with aiosqlite.connect("bot.db") as db:
-        await db.execute("UPDATE users SET interests=? WHERE id=?", (interests, update.effective_user.id))
-        await db.commit()
-    await update.message.reply_text("Профиль создан! Используй 🔎 Поиск.", reply_markup=main_menu())
-    return ConversationHandler.END
-
-async def browse(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    async with aiosqlite.connect("bot.db") as db:
-        async with db.execute("SELECT region, interests FROM users WHERE id=?", (user_id,)) as cursor:
-            me = await cursor.fetchone()
-        if not me:
-            await update.message.reply_text("Сначала /setprofile")
-            return
-        
-        async with db.execute("SELECT id, name, bio, photo, interests FROM users WHERE id != ? AND region=?", (user_id, me[0])) as cursor:
-            async for row in cursor:
-                uid, name, bio, photo, interests = row
-                keyboard = [[InlineKeyboardButton("❤️ Лайк", callback_data=f"like_{uid}"), InlineKeyboardButton("❌ Дизлайк", callback_data=f"dislike_{uid}")]]
-                if photo:
-                    await update.message.reply_photo(photo=photo, caption=f"{name}\n{bio}\nИнтересы: {interests}", reply_markup=InlineKeyboardMarkup(keyboard))
-                else:
-                    await update.message.reply_text(f"{name}\n{bio}", reply_markup=InlineKeyboardMarkup(keyboard))
-                return
-    await update.message.reply_text("Пока нет новых анкет в твоем регионе.")
-
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    if data.startswith("like_"):
-        liked_id = int(data.split("_")[1])
-        async with aiosqlite.connect("bot.db") as db:
-            await db.execute("INSERT INTO likes(user_id, liked_id) VALUES(?, ?)", (user_id, liked_id))
-            await db.commit()
-        await query.edit_message_text("Лайк отправлен!")
-    elif data.startswith("dislike_"):
-        await query.edit_message_text("Пропущено.")
-
-async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🔎 Поиск":
-        await browse(update, context)
-    elif update.message.text == "📇 Мой профиль":
-        await update.message.reply_text("Функция профиля в разработке.")
-
-async def main():
-    await init_db()
-    token = os.environ.get("BOT_TOKEN")
-    if not token:
+    if text == "🔍 Смотреть анкеты":
+        await show_profile(update)
         return
-    app = ApplicationBuilder().token(token).build()
-    
-    conv = ConversationHandler(entry_points=[CommandHandler("setprofile", setprofile)], 
-                               states={BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, bio_handler)],
-                                       PHOTO: [MessageHandler(filters.PHOTO, photo_handler)],
-                                       REGION: [MessageHandler(filters.TEXT & ~filters.COMMAND, region_handler)],
-                                       INTERESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, interests_handler)]},
-                               fallbacks=[])
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(button))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
-    
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
-    # Ждем сигнала остановки
-    stop_signal = asyncio.Event()
-    await stop_signal.wait()
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    if text == "❤️":
+        await like_profile(update)
+        return
+
+    if text == "👎":
+        await skip_profile(update)
+        return
+
+    cursor.execute("""
+    INSERT OR REPLACE INTO users
+    VALUES (?, ?)
+    """, (uid, text))
+
+    conn.commit()
+
+    await update.message.reply_text(
+        "✅ Анкета сохранена",
+        reply_markup=menu
+    )
+
+async def show_profile(update):
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    SELECT * FROM users
+    WHERE user_id != ?
+    """, (uid,))
+
+    users = cursor.fetchall()
+
+    if not users:
+        await update.message.reply_text("Анкет пока нет")
+        return
+
+    target = random.choice(users)
+
+    last_view[uid] = target[0]
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton("❤️"), KeyboardButton("👎")]
+        ],
+        resize_keyboard=True
+    )
+
+    await update.message.reply_text(
+        f"❤️ Анкета:\n\n{target[1]}",
+        reply_markup=keyboard
+    )
+
+async def like_profile(update):
+    uid = update.message.from_user.id
+
+    if uid not in last_view:
+        return
+
+    target = last_view[uid]
+
+    cursor.execute("""
+    INSERT INTO likes
+    VALUES (?, ?)
+    """, (uid, target))
+
+    conn.commit()
+
+    cursor.execute("""
+    SELECT * FROM likes
+    WHERE from_user=? AND to_user=?
+    """, (target, uid))
+
+    match = cursor.fetchone()
+
+    if match:
+        await update.message.reply_text(
+            "🎉 Взаимная симпатия!"
+        )
+
+    else:
+        await update.message.reply_text(
+            "❤️ Лайк отправлен"
+        )
+
+    await show_profile(update)
+
+async def skip_profile(update):
+    await show_profile(update)
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+
+app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        save_profile
+    )
+)
+
+print("BOT STARTED")
+
+app.run_polling()
