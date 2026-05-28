@@ -35,7 +35,7 @@ async def start(message: types.Message):
 
 @dp.callback_query(F.data == "my_profile")
 async def show_profile(callback: types.CallbackQuery):
-    await callback.answer() # ОБЯЗАТЕЛЬНО: убирает "загрузку" на кнопке
+    await callback.answer()
     cursor.execute('SELECT * FROM users WHERE id = ?', (callback.from_user.id,))
     user = cursor.fetchone()
     if not user:
@@ -66,7 +66,6 @@ async def skip(callback: types.CallbackQuery):
     await callback.message.delete()
     await find(callback)
 
-# Регистрация (Полный цикл)
 @dp.message(Command("register"))
 async def reg(message: types.Message, state: FSMContext):
     await message.answer("Как тебя зовут?"); await state.set_state(Profile.name)
@@ -81,7 +80,7 @@ async def reg3(message: types.Message, state: FSMContext):
 
 @dp.message(Profile.bio)
 async def reg4(message: types.Message, state: FSMContext):
-    await state.update_data(bio=message.text); await message.answer("Фото:"); await state.set_state(Profile.photo)
+    await state.update_data(bio=message.text); await message.answer("Пришли фото:"); await state.set_state(Profile.photo)
 
 @dp.message(Profile.photo)
 async def reg5(message: types.Message, state: FSMContext):
