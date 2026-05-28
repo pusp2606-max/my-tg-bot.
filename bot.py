@@ -15,21 +15,28 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-conn = sqlite3.connect("dating.db", check_same_thread=False)
+conn = sqlite3.connect(
+    "dating.db",
+    check_same_thread=False
+)
+
 cursor = conn.cursor()
 
+# USERS
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
     name TEXT,
     age TEXT,
+    gender TEXT,
     city TEXT,
     bio TEXT,
     photo TEXT
 )
 """)
 
+# LIKES
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS likes (
     from_user INTEGER,
@@ -37,15 +44,35 @@ CREATE TABLE IF NOT EXISTS likes (
 )
 """)
 
+# FAVORITES
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id INTEGER,
+    favorite_id INTEGER
+)
+""")
+
 conn.commit()
 
+# MAIN MENU
 menu = ReplyKeyboardMarkup(
-    [["🔍 Смотреть анкеты"]],
+    [
+        ["🔍 Смотреть анкеты"],
+        ["👤 Моя анкета", "❤️ Избранное"],
+        ["✏️ Изменить анкету"],
+        ["🗑 Удалить анкету"],
+        ["ℹ️ Помощь", "📊 Статистика"]
+    ],
     resize_keyboard=True
 )
 
+# LIKE MENU
 like_menu = ReplyKeyboardMarkup(
-    [["❤️", "👎"]],
+    [
+        ["❤️", "👎"],
+        ["⭐ В избранное"],
+        ["🏠 Главное меню"]
+    ],
     resize_keyboard=True
 )
 
@@ -53,6 +80,7 @@ register_step = {}
 temp_data = {}
 last_profile = {}
 
+# START
 def start(update, context):
     uid = update.message.from_user.id
 
@@ -64,14 +92,48 @@ def start(update, context):
         "Как тебя зовут?"
     )
 
+# TEXT HANDLER
 def text_handler(update, context):
     uid = update.message.from_user.id
     text = update.message.text
 
+    # MENU
     if text == "🔍 Смотреть анкеты":
         show_profile(update, context)
         return
 
+    if text == "👤 Моя анкета":
+        my_profile(update, context)
+        return
+
+    if text == "🗑 Удалить анкету":
+        delete_profile(update, context)
+        return
+
+    if text == "✏️ Изменить анкету":
+        edit_profile(update, context)
+        return
+
+    if text == "❤️ Избранное":
+        favorites(update, context)
+        return
+
+    if text == "📊 Статистика":
+        stats(update, context)
+        return
+
+    if text == "ℹ️ Помощь":
+        help_command(update, context)
+        return
+
+    if text == "🏠 Главное меню":
+        update.message.reply_text(
+            "Главное меню",
+            reply_markup=menu
+        )
+        return
+
+    # LIKE SYSTEM
     if text == "❤️":
         like(update, context)
         return
@@ -80,6 +142,11 @@ def text_handler(update, context):
         skip(update, context)
         return
 
+    if text == "⭐ В избранное":
+        add_favorite(update, context)
+        return
+
+    # REGISTER
     if uid not in register_step:
         return
 
@@ -95,6 +162,16 @@ def text_handler(update, context):
 
     elif step == "age":
         temp_data[uid]["age"] = text
+        register_step[uid] = "gender"
+
+        update.message.reply_text(
+            "Твой пол?\n\n"
+            "Напиши:\n"
+            "М\nили\nЖ"
+        )
+
+    elif step == "gender":
+        temp_data[uid]["gender"] = text
         register_step[uid] = "city"
 
         update.message.reply_text(
@@ -117,6 +194,7 @@ def text_handler(update, context):
             "Теперь отправь фото 📸"
         )
 
+# PHOTO
 def photo_handler(update, context):
     uid = update.message.from_user.id
 
@@ -135,12 +213,13 @@ def photo_handler(update, context):
 
         cursor.execute("""
         INSERT OR REPLACE INTO users
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             uid,
             username,
             data["name"],
             data["age"],
+            data["gender"],
             data["city"],
             data["bio"],
             photo
@@ -158,6 +237,7 @@ def photo_handler(update, context):
     except Exception as e:
         print(e)
 
+# SHOW PROFILE
 def show_profile(update, context):
     uid = update.message.from_user.id
 
@@ -180,22 +260,24 @@ def show_profile(update, context):
 
     text = f"""
 ❤️ {target[2]}, {target[3]}
-📍 {target[4]}
+🚻 {target[4]}
+📍 {target[5]}
 
-{target[5]}
+{target[6]}
 """
 
     try:
         context.bot.send_photo(
             chat_id=update.message.chat_id,
-            photo=target[6],
+            photo=target[7],
             caption=text,
             reply_markup=like_menu
         )
 
-    except:
-        pass
+    except Exception as e:
+        print(e)
 
+# LIKE
 def like(update, context):
     uid = update.message.from_user.id
 
@@ -246,8 +328,164 @@ def like(update, context):
 
     show_profile(update, context)
 
+# SKIP
 def skip(update, context):
     show_profile(update, context)
+
+# FAVORITE
+def add_favorite(update, context):
+    uid = update.message.from_user.id
+
+    if uid not in last_profile:
+        return
+
+    target = last_profile[uid]
+
+    cursor.execute("""
+    INSERT INTO favorites
+    VALUES (?, ?)
+    """, (uid, target))
+
+    conn.commit()
+
+    update.message.reply_text(
+        "⭐ Добавлено в избранное"
+    )
+
+# FAVORITES LIST
+def favorites(update, context):
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    SELECT favorite_id FROM favorites
+    WHERE user_id=?
+    """, (uid,))
+
+    favs = cursor.fetchall()
+
+    if not favs:
+        update.message.reply_text(
+            "Избранное пусто"
+        )
+        return
+
+    text = "❤️ Избранное:\n\n"
+
+    for fav in favs:
+
+        cursor.execute("""
+        SELECT name, age, city
+        FROM users
+        WHERE user_id=?
+        """, (fav[0],))
+
+        user = cursor.fetchone()
+
+        if user:
+            text += f"""
+❤️ {user[0]}, {user[1]}
+📍 {user[2]}
+
+"""
+
+    update.message.reply_text(text)
+
+# MY PROFILE
+def my_profile(update, context):
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    SELECT * FROM users
+    WHERE user_id=?
+    """, (uid,))
+
+    user = cursor.fetchone()
+
+    if not user:
+        update.message.reply_text(
+            "У тебя нет анкеты"
+        )
+        return
+
+    text = f"""
+👤 Твоя анкета
+
+❤️ {user[2]}, {user[3]}
+🚻 {user[4]}
+📍 {user[5]}
+
+{user[6]}
+"""
+
+    try:
+        context.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=user[7],
+            caption=text,
+            reply_markup=menu
+        )
+
+    except Exception as e:
+        print(e)
+
+# DELETE
+def delete_profile(update, context):
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    DELETE FROM users
+    WHERE user_id=?
+    """, (uid,))
+
+    conn.commit()
+
+    update.message.reply_text(
+        "🗑 Анкета удалена",
+        reply_markup=menu
+    )
+
+# EDIT
+def edit_profile(update, context):
+    uid = update.message.from_user.id
+
+    register_step[uid] = "name"
+    temp_data[uid] = {}
+
+    update.message.reply_text(
+        "✏️ Введи новое имя"
+    )
+
+# HELP
+def help_command(update, context):
+    update.message.reply_text(
+        "ℹ️ Команды:\n\n"
+        "🔍 Смотреть анкеты\n"
+        "👤 Моя анкета\n"
+        "❤️ Избранное\n"
+        "✏️ Изменить анкету\n"
+        "🗑 Удалить анкету"
+    )
+
+# STATS
+def stats(update, context):
+
+    cursor.execute("""
+    SELECT COUNT(*) FROM users
+    """)
+
+    users = cursor.fetchone()[0]
+
+    cursor.execute("""
+    SELECT COUNT(*) FROM likes
+    """)
+
+    likes = cursor.fetchone()[0]
+
+    update.message.reply_text(
+        f"📊 Статистика\n\n"
+        f"👤 Пользователей: {users}\n"
+        f"❤️ Лайков: {likes}"
+    )
 
 print("BOT STARTED")
 
