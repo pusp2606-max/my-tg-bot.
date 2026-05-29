@@ -20,7 +20,10 @@ conn = sqlite3.connect(
 
 cursor = conn.cursor()
 
-# USERS
+# =========================
+# DATABASE
+# =========================
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -36,7 +39,6 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# LIKES
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS likes (
     from_user INTEGER,
@@ -44,7 +46,6 @@ CREATE TABLE IF NOT EXISTS likes (
 )
 """)
 
-# FAVORITES
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS favorites (
     user_id INTEGER,
@@ -54,7 +55,18 @@ CREATE TABLE IF NOT EXISTS favorites (
 
 conn.commit()
 
-# MAIN MENU
+# =========================
+# ADMIN
+# =========================
+
+ADMIN_ID = 7341841897
+
+# ЗАМЕНИ НА СВОЙ ID
+
+# =========================
+# MENUS
+# =========================
+
 menu = ReplyKeyboardMarkup(
     [
         ["🔍 Смотреть анкеты"],
@@ -68,7 +80,6 @@ menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# LIKE MENU
 like_menu = ReplyKeyboardMarkup(
     [
         ["❤️", "👎"],
@@ -78,11 +89,25 @@ like_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+mood_keyboard = ReplyKeyboardMarkup(
+    [
+        ["❤️ Ищу любовь"],
+        ["🌊 Хочу общения"],
+        ["🎮 Ищу друзей"],
+        ["☕ Погулять"],
+        ["🌙 Поболтать ночью"]
+    ],
+    resize_keyboard=True
+)
+
 register_step = {}
 temp_data = {}
 last_profile = {}
 
+# =========================
 # START
+# =========================
+
 def start(update, context):
 
     uid = update.message.from_user.id
@@ -91,11 +116,14 @@ def start(update, context):
     temp_data[uid] = {}
 
     update.message.reply_text(
-        "❤️ Добро пожаловать в Apsny Love\n\n"
+        "🌊 Добро пожаловать в Apsny Love ❤️\n\n"
         "Как тебя зовут?"
     )
 
+# =========================
 # TEXT HANDLER
+# =========================
+
 def text_handler(update, context):
 
     uid = update.message.from_user.id
@@ -123,6 +151,7 @@ def text_handler(update, context):
         return
 
     # MENU
+
     if text == "🔍 Смотреть анкеты":
         show_profile(update, context)
         return
@@ -144,7 +173,12 @@ def text_handler(update, context):
         return
 
     if text == "🌊 Настроение":
-        mood_menu(update, context)
+
+        update.message.reply_text(
+            "✨ Выбери настроение",
+            reply_markup=mood_keyboard
+        )
+
         return
 
     if text == "💘 Crush дня":
@@ -168,13 +202,16 @@ def text_handler(update, context):
         return
 
     if text == "🏠 Главное меню":
+
         update.message.reply_text(
             "🏠 Главное меню",
             reply_markup=menu
         )
+
         return
 
-    # LIKE SYSTEM
+    # LIKE
+
     if text == "❤️":
         like(update, context)
         return
@@ -188,6 +225,7 @@ def text_handler(update, context):
         return
 
     # REGISTER
+
     if uid not in register_step:
         return
 
@@ -247,7 +285,10 @@ def text_handler(update, context):
             "Теперь отправь фото 📸"
         )
 
+# =========================
 # PHOTO
+# =========================
+
 def photo_handler(update, context):
 
     uid = update.message.from_user.id
@@ -266,7 +307,10 @@ def photo_handler(update, context):
 
         data = temp_data[uid]
 
-        mood = data.get("mood", "🌊 Без настроения")
+        mood = data.get(
+            "mood",
+            "🌊 Без настроения"
+        )
 
         cursor.execute("""
         INSERT OR REPLACE INTO users
@@ -296,7 +340,10 @@ def photo_handler(update, context):
     except Exception as e:
         print(e)
 
+# =========================
 # SHOW PROFILE
+# =========================
+
 def show_profile(update, context):
 
     uid = update.message.from_user.id
@@ -304,19 +351,19 @@ def show_profile(update, context):
     cursor.execute("""
     SELECT * FROM users
     WHERE user_id != ?
+    ORDER BY RANDOM()
+    LIMIT 1
     """, (uid,))
 
-    users = cursor.fetchall()
+    target = cursor.fetchone()
 
-    if not users:
+    if not target:
 
         update.message.reply_text(
             "Анкет пока нет"
         )
 
         return
-
-    target = random.choice(users)
 
     last_profile[uid] = target[0]
 
@@ -343,7 +390,10 @@ def show_profile(update, context):
     except Exception as e:
         print(e)
 
-# LIKE
+# =========================
+# LIKE SYSTEM
+# =========================
+
 def like(update, context):
 
     uid = update.message.from_user.id
@@ -361,17 +411,19 @@ def like(update, context):
     conn.commit()
 
     # SEND LIKE
+
     try:
 
         context.bot.send_message(
             chat_id=target,
-            text="❤️ Кто-то лайкнул твою анкету"
+            text="❤️ Кому-то понравилась твоя анкета"
         )
 
     except:
         pass
 
     # MATCH CHECK
+
     cursor.execute("""
     SELECT * FROM likes
     WHERE from_user=? AND to_user=?
@@ -382,7 +434,8 @@ def like(update, context):
     if match:
 
         cursor.execute("""
-        SELECT username FROM users
+        SELECT username
+        FROM users
         WHERE user_id=?
         """, (target,))
 
@@ -390,27 +443,40 @@ def like(update, context):
 
         username = user[0]
 
-        if username:
+        if not username:
+            username = "пользователь без username"
+
+        if username == "пользователь без username":
+
+            update.message.reply_text(
+                "🎉 Взаимная симпатия!\n\nпользователь без username"
+            )
+
+        else:
 
             update.message.reply_text(
                 f"🎉 Взаимная симпатия!\n\n@{username}"
             )
 
-            try:
+        sender_username = update.message.from_user.username
 
-                context.bot.send_message(
-                    chat_id=target,
-                    text=f"🎉 Взаимная симпатия!\n\n@{update.message.from_user.username}"
-                )
+        if sender_username:
 
-            except:
-                pass
+            match_text = f"🎉 Взаимная симпатия!\n\n@{sender_username}"
 
         else:
 
-            update.message.reply_text(
-                "🎉 Взаимная симпатия!"
+            match_text = "🎉 Взаимная симпатия!\n\nпользователь без username"
+
+        try:
+
+            context.bot.send_message(
+                chat_id=target,
+                text=match_text
             )
+
+        except:
+            pass
 
     else:
 
@@ -420,11 +486,17 @@ def like(update, context):
 
     show_profile(update, context)
 
+# =========================
 # SKIP
+# =========================
+
 def skip(update, context):
     show_profile(update, context)
 
+# =========================
 # FAVORITES
+# =========================
+
 def add_favorite(update, context):
 
     uid = update.message.from_user.id
@@ -445,13 +517,17 @@ def add_favorite(update, context):
         "⭐ Добавлено в избранное"
     )
 
+# =========================
 # FAVORITES LIST
+# =========================
+
 def favorites(update, context):
 
     uid = update.message.from_user.id
 
     cursor.execute("""
-    SELECT favorite_id FROM favorites
+    SELECT favorite_id
+    FROM favorites
     WHERE user_id=?
     """, (uid,))
 
@@ -487,7 +563,10 @@ def favorites(update, context):
 
     update.message.reply_text(text)
 
-# PROFILE
+# =========================
+# MY PROFILE
+# =========================
+
 def my_profile(update, context):
 
     uid = update.message.from_user.id
@@ -532,7 +611,10 @@ def my_profile(update, context):
     except:
         pass
 
-# DELETE
+# =========================
+# DELETE PROFILE
+# =========================
+
 def delete_profile(update, context):
 
     uid = update.message.from_user.id
@@ -542,14 +624,27 @@ def delete_profile(update, context):
     WHERE user_id=?
     """, (uid,))
 
+    cursor.execute("""
+    DELETE FROM likes
+    WHERE from_user=? OR to_user=?
+    """, (uid, uid))
+
+    cursor.execute("""
+    DELETE FROM favorites
+    WHERE user_id=? OR favorite_id=?
+    """, (uid, uid))
+
     conn.commit()
 
     update.message.reply_text(
-        "🗑 Анкета удалена",
+        "🗑 Твоя анкета удалена",
         reply_markup=menu
     )
 
-# EDIT
+# =========================
+# EDIT PROFILE
+# =========================
+
 def edit_profile(update, context):
 
     uid = update.message.from_user.id
@@ -561,26 +656,10 @@ def edit_profile(update, context):
         "✏️ Введи новое имя"
     )
 
-# MOOD MENU
-def mood_menu(update, context):
-
-    mood_keyboard = ReplyKeyboardMarkup(
-        [
-            ["❤️ Ищу любовь"],
-            ["🌊 Хочу общения"],
-            ["🎮 Ищу друзей"],
-            ["☕ Погулять"],
-            ["🌙 Поболтать ночью"]
-        ],
-        resize_keyboard=True
-    )
-
-    update.message.reply_text(
-        "✨ Выбери настроение",
-        reply_markup=mood_keyboard
-    )
-
+# =========================
 # CRUSH DAY
+# =========================
+
 def crush_day(update, context):
 
     cursor.execute("""
@@ -621,7 +700,10 @@ def crush_day(update, context):
     except:
         pass
 
+# =========================
 # NIGHT MATCH
+# =========================
+
 def night_match(update, context):
 
     hour = datetime.datetime.now().hour
@@ -640,34 +722,79 @@ def night_match(update, context):
             "🌙 Night Match работает после 23:00"
         )
 
+# =========================
 # MUSIC VIBE
+# =========================
+
 def music_vibe(update, context):
 
+    uid = update.message.from_user.id
+
     cursor.execute("""
-    SELECT * FROM users
-    ORDER BY RANDOM()
-    LIMIT 1
-    """)
+    SELECT music
+    FROM users
+    WHERE user_id=?
+    """, (uid,))
 
-    user = cursor.fetchone()
+    my_music = cursor.fetchone()
 
-    if not user:
+    if not my_music:
+
+        update.message.reply_text(
+            "Сначала создай анкету"
+        )
+
         return
 
+    my_music = my_music[0].lower()
+
+    cursor.execute("""
+    SELECT *
+    FROM users
+    WHERE user_id != ?
+    """, (uid,))
+
+    users = cursor.fetchall()
+
+    matched = []
+
+    for user in users:
+
+        try:
+
+            other_music = str(user[7]).lower()
+
+            if my_music in other_music or other_music in my_music:
+                matched.append(user)
+
+        except:
+            pass
+
+    if not matched:
+
+        update.message.reply_text(
+            "🎵 Пока нет людей с похожим вайбом"
+        )
+
+        return
+
+    target = random.choice(matched)
+
     text = f"""
-🎵 Музыкальный вайб
+🎵 Музыкальный вайб совпал
 
-❤️ {user[2]}
-🎧 Любит: {user[7]}
+❤️ {target[2]}, {target[3]}
+📍 {target[5]}
 
-✨ {user[8]}
+🎧 Любит: {target[7]}
+✨ {target[8]}
 """
 
     try:
 
         context.bot.send_photo(
             chat_id=update.message.chat_id,
-            photo=user[9],
+            photo=target[9],
             caption=text,
             reply_markup=like_menu
         )
@@ -675,30 +802,38 @@ def music_vibe(update, context):
     except:
         pass
 
+# =========================
 # HELP
+# =========================
+
 def help_command(update, context):
 
     update.message.reply_text(
-        "ℹ️ Apsny Love\n\n"
+        "🌊 Apsny Love ❤️\n\n"
         "❤️ Лайки\n"
         "💘 Матчи\n"
         "🌙 Night Match\n"
         "🎵 Музыкальный вайб\n"
         "⭐ Избранное\n"
-        "🌊 Настроение"
+        "🌊 Настроения"
     )
 
+# =========================
 # STATS
+# =========================
+
 def stats(update, context):
 
     cursor.execute("""
-    SELECT COUNT(*) FROM users
+    SELECT COUNT(*)
+    FROM users
     """)
 
     users = cursor.fetchone()[0]
 
     cursor.execute("""
-    SELECT COUNT(*) FROM likes
+    SELECT COUNT(*)
+    FROM likes
     """)
 
     likes = cursor.fetchone()[0]
@@ -708,6 +843,50 @@ def stats(update, context):
         f"👤 Пользователей: {users}\n"
         f"❤️ Лайков: {likes}"
     )
+
+# =========================
+# ADMIN DELETE USER
+# =========================
+
+def delete_user(update, context):
+
+    if update.message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+
+        target_id = int(context.args[0])
+
+        cursor.execute("""
+        DELETE FROM users
+        WHERE user_id=?
+        """, (target_id,))
+
+        cursor.execute("""
+        DELETE FROM likes
+        WHERE from_user=? OR to_user=?
+        """, (target_id, target_id))
+
+        cursor.execute("""
+        DELETE FROM favorites
+        WHERE user_id=? OR favorite_id=?
+        """, (target_id, target_id))
+
+        conn.commit()
+
+        update.message.reply_text(
+            f"🗑 Анкета {target_id} удалена"
+        )
+
+    except:
+
+        update.message.reply_text(
+            "Используй:\n/delete ID"
+        )
+
+# =========================
+# START BOT
+# =========================
 
 print("BOT STARTED")
 
@@ -722,6 +901,14 @@ dp.add_handler(
     CommandHandler(
         "start",
         start
+    )
+)
+
+dp.add_handler(
+    CommandHandler(
+        "delete",
+        delete_user,
+        pass_args=True
     )
 )
 
