@@ -61,8 +61,6 @@ conn.commit()
 
 ADMIN_ID = 7341841897
 
-# ЗАМЕНИ НА СВОЙ ID
-
 # =========================
 # MENUS
 # =========================
@@ -83,6 +81,7 @@ menu = ReplyKeyboardMarkup(
 like_menu = ReplyKeyboardMarkup(
     [
         ["❤️", "👎"],
+        ["👀 Кто лайкнул"],
         ["⭐ В избранное"],
         ["🏠 Главное меню"]
     ],
@@ -210,7 +209,7 @@ def text_handler(update, context):
 
         return
 
-    # LIKE
+    # LIKE SYSTEM
 
     if text == "❤️":
         like(update, context)
@@ -218,6 +217,10 @@ def text_handler(update, context):
 
     if text == "👎":
         skip(update, context)
+        return
+
+    if text == "👀 Кто лайкнул":
+        view_likes(update, context)
         return
 
     if text == "⭐ В избранное":
@@ -391,6 +394,76 @@ def show_profile(update, context):
         print(e)
 
 # =========================
+# VIEW LIKES
+# =========================
+
+def view_likes(update, context):
+
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    SELECT from_user
+    FROM likes
+    WHERE to_user=?
+    ORDER BY ROWID DESC
+    """, (uid,))
+
+    likes = cursor.fetchall()
+
+    if not likes:
+
+        update.message.reply_text(
+            "❤️ Тебя пока никто не лайкнул"
+        )
+
+        return
+
+    target_id = likes[0][0]
+
+    cursor.execute("""
+    SELECT *
+    FROM users
+    WHERE user_id=?
+    """, (target_id,))
+
+    user = cursor.fetchone()
+
+    if not user:
+
+        update.message.reply_text(
+            "Анкета не найдена"
+        )
+
+        return
+
+    last_profile[uid] = target_id
+
+    text = f"""
+👀 Тебя лайкнул(а):
+
+❤️ {user[2]}, {user[3]}
+🚻 {user[4]}
+📍 {user[5]}
+
+📝 {user[6]}
+
+🎵 {user[7]}
+✨ {user[8]}
+"""
+
+    try:
+
+        context.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=user[9],
+            caption=text,
+            reply_markup=like_menu
+        )
+
+    except Exception as e:
+        print(e)
+
+# =========================
 # LIKE SYSTEM
 # =========================
 
@@ -410,19 +483,15 @@ def like(update, context):
 
     conn.commit()
 
-    # SEND LIKE
-
     try:
 
         context.bot.send_message(
             chat_id=target,
-            text="❤️ Кому-то понравилась твоя анкета"
+            text="❤️ Кому-то понравилась твоя анкета\n\nНажми «👀 Кто лайкнул»"
         )
 
     except:
         pass
-
-    # MATCH CHECK
 
     cursor.execute("""
     SELECT * FROM likes
@@ -449,24 +518,24 @@ def like(update, context):
         if username == "пользователь без username":
 
             update.message.reply_text(
-                "🎉 Взаимная симпатия!\n\nпользователь без username"
+                "💘 Это взаимный лайк!"
             )
 
         else:
 
             update.message.reply_text(
-                f"🎉 Взаимная симпатия!\n\n@{username}"
+                f"💘 Это взаимный лайк!\n\n@{username}"
             )
 
         sender_username = update.message.from_user.username
 
         if sender_username:
 
-            match_text = f"🎉 Взаимная симпатия!\n\n@{sender_username}"
+            match_text = f"💘 Это взаимный лайк!\n\n@{sender_username}"
 
         else:
 
-            match_text = "🎉 Взаимная симпатия!\n\nпользователь без username"
+            match_text = "💘 Это взаимный лайк!"
 
         try:
 
@@ -868,63 +937,3 @@ def delete_user(update, context):
         """, (target_id, target_id))
 
         cursor.execute("""
-        DELETE FROM favorites
-        WHERE user_id=? OR favorite_id=?
-        """, (target_id, target_id))
-
-        conn.commit()
-
-        update.message.reply_text(
-            f"🗑 Анкета {target_id} удалена"
-        )
-
-    except:
-
-        update.message.reply_text(
-            "Используй:\n/delete ID"
-        )
-
-# =========================
-# START BOT
-# =========================
-
-print("BOT STARTED")
-
-updater = Updater(
-    TOKEN,
-    use_context=True
-)
-
-dp = updater.dispatcher
-
-dp.add_handler(
-    CommandHandler(
-        "start",
-        start
-    )
-)
-
-dp.add_handler(
-    CommandHandler(
-        "delete",
-        delete_user,
-        pass_args=True
-    )
-)
-
-dp.add_handler(
-    MessageHandler(
-        Filters.text,
-        text_handler
-    )
-)
-
-dp.add_handler(
-    MessageHandler(
-        Filters.photo,
-        photo_handler
-    )
-)
-
-updater.start_polling()
-updater.idle()
