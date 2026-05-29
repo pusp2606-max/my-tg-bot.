@@ -1,5 +1,6 @@
 # =========================
 # APSNY LOVE ULTIMATE PREMIUM
+# FULL WORKING VERSION
 # =========================
 
 import sqlite3
@@ -17,16 +18,16 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 
+# =========================
+# DATABASE
+# =========================
+
 conn = sqlite3.connect(
     "dating.db",
     check_same_thread=False
 )
 
 cursor = conn.cursor()
-
-# =========================
-# DATABASE
-# =========================
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
@@ -71,9 +72,10 @@ menu = ReplyKeyboardMarkup(
         ["👀 Кто лайкнул", "💘 Crush дня"],
         ["⭐ Избранное", "🏆 Топ недели"],
         ["🌙 Night Match", "🎵 Музыкальный вайб"],
+        ["🌊 Настроение", "📊 Статистика"],
         ["👤 Моя анкета", "👑 VIP"],
         ["✏️ Изменить анкету"],
-        ["🗑 Удалить анкету"]
+        ["🗑 Удалить анкету", "ℹ️ Помощь"]
     ],
     resize_keyboard=True
 )
@@ -108,6 +110,17 @@ tags_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+mood_keyboard = ReplyKeyboardMarkup(
+    [
+        ["❤️ Ищу любовь"],
+        ["🌊 Хочу общения"],
+        ["🎮 Ищу друзей"],
+        ["☕ Погулять"],
+        ["🌙 Поболтать ночью"]
+    ],
+    resize_keyboard=True
+)
+
 register_step = {}
 temp_data = {}
 last_profile = {}
@@ -125,9 +138,10 @@ def start(update, context):
 
     update.message.reply_text(
         "💎 Добро пожаловать в Apsny Love Ultimate Premium 💎\n\n"
-        "🌊 Самый красивый бот знакомств\n"
-        "❤️ Лайки • Матчи • VIP • Night Match\n\n"
-        "🔥 Найди человека по вайбу\n\n"
+        "🌊 Самый красивый бот знакомств Абхазии\n"
+        "❤️ Лайки • Матчи • VIP • Night Match\n"
+        "🔥 Tinder стиль • Smart Match • Crush дня\n\n"
+        "✨ Найди человека по вайбу\n\n"
         "👤 Как тебя зовут?"
     )
 
@@ -140,6 +154,8 @@ def text_handler(update, context):
     uid = update.message.from_user.id
     text = update.message.text
 
+    # MENU
+
     if text == "🔍 Смотреть анкеты":
         show_profile(update, context)
         return
@@ -150,22 +166,6 @@ def text_handler(update, context):
 
     if text == "⭐ Избранное":
         favorites(update, context)
-        return
-
-    if text == "👤 Моя анкета":
-        my_profile(update, context)
-        return
-
-    if text == "❤️":
-        like(update, context)
-        return
-
-    if text == "👎":
-        skip(update, context)
-        return
-
-    if text == "⭐ В избранное":
-        add_favorite(update, context)
         return
 
     if text == "💘 Crush дня":
@@ -184,6 +184,23 @@ def text_handler(update, context):
         music_vibe(update, context)
         return
 
+    if text == "🌊 Настроение":
+
+        update.message.reply_text(
+            "✨ Выбери настроение",
+            reply_markup=mood_keyboard
+        )
+
+        return
+
+    if text == "📊 Статистика":
+        stats(update, context)
+        return
+
+    if text == "👤 Моя анкета":
+        my_profile(update, context)
+        return
+
     if text == "👑 VIP":
 
         update.message.reply_text(
@@ -192,10 +209,58 @@ def text_handler(update, context):
 
         return
 
+    if text == "✏️ Изменить анкету":
+        edit_profile(update, context)
+        return
+
+    if text == "🗑 Удалить анкету":
+        delete_profile(update, context)
+        return
+
+    if text == "ℹ️ Помощь":
+        help_command(update, context)
+        return
+
     if text == "🏠 Главное меню":
 
         update.message.reply_text(
             "🏠 Главное меню",
+            reply_markup=menu
+        )
+
+        return
+
+    # LIKE SYSTEM
+
+    if text == "❤️":
+        like(update, context)
+        return
+
+    if text == "👎":
+        skip(update, context)
+        return
+
+    if text == "⭐ В избранное":
+        add_favorite(update, context)
+        return
+
+    # MOODS
+
+    moods = [
+        "❤️ Ищу любовь",
+        "🌊 Хочу общения",
+        "🎮 Ищу друзей",
+        "☕ Погулять",
+        "🌙 Поболтать ночью"
+    ]
+
+    if text in moods:
+
+        temp_data.setdefault(uid, {})
+        temp_data[uid]["mood"] = text
+
+        update.message.reply_text(
+            f"✨ Настроение установлено:\n\n{text}",
             reply_markup=menu
         )
 
@@ -293,6 +358,11 @@ def photo_handler(update, context):
 
     data = temp_data[uid]
 
+    mood = data.get(
+        "mood",
+        "🌊 Без настроения"
+    )
+
     cursor.execute("""
     INSERT OR REPLACE INTO users
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -305,7 +375,7 @@ def photo_handler(update, context):
         data["city"],
         data["bio"],
         data["music"],
-        "🌊 Без настроения",
+        mood,
         photo,
         data["tags"],
         0
@@ -385,6 +455,7 @@ def show_profile(update, context):
 📝 {user[6]}
 
 🎵 {user[7]}
+✨ {user[8]}
 🏷 {user[10]}
 """
 
@@ -407,6 +478,22 @@ def like(update, context):
         return
 
     target = last_profile[uid]
+
+    cursor.execute("""
+    SELECT *
+    FROM likes
+    WHERE from_user=? AND to_user=?
+    """, (uid, target))
+
+    already = cursor.fetchone()
+
+    if already:
+
+        update.message.reply_text(
+            "❤️ Ты уже лайкал эту анкету"
+        )
+
+        return
 
     cursor.execute("""
     INSERT INTO likes
@@ -502,6 +589,7 @@ def view_likes(update, context):
 📝 {user[6]}
 
 🎵 {user[7]}
+✨ {user[8]}
 🏷 {user[10]}
 """
 
@@ -619,6 +707,7 @@ def my_profile(update, context):
 📝 {user[6]}
 
 🎵 {user[7]}
+✨ {user[8]}
 🏷 {user[10]}
 """
 
@@ -626,6 +715,51 @@ def my_profile(update, context):
         chat_id=update.message.chat_id,
         photo=user[9],
         caption=text,
+        reply_markup=menu
+    )
+
+# =========================
+# EDIT PROFILE
+# =========================
+
+def edit_profile(update, context):
+
+    uid = update.message.from_user.id
+
+    register_step[uid] = "name"
+    temp_data[uid] = {}
+
+    update.message.reply_text(
+        "✏️ Введи новое имя"
+    )
+
+# =========================
+# DELETE PROFILE
+# =========================
+
+def delete_profile(update, context):
+
+    uid = update.message.from_user.id
+
+    cursor.execute("""
+    DELETE FROM users
+    WHERE user_id=?
+    """, (uid,))
+
+    cursor.execute("""
+    DELETE FROM likes
+    WHERE from_user=? OR to_user=?
+    """, (uid, uid))
+
+    cursor.execute("""
+    DELETE FROM favorites
+    WHERE user_id=? OR favorite_id=?
+    """, (uid, uid))
+
+    conn.commit()
+
+    update.message.reply_text(
+        "🗑 Анкета удалена",
         reply_markup=menu
     )
 
@@ -721,6 +855,50 @@ def music_vibe(update, context):
     )
 
     show_profile(update, context)
+
+# =========================
+# STATS
+# =========================
+
+def stats(update, context):
+
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM users
+    """)
+
+    users = cursor.fetchone()[0]
+
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM likes
+    """)
+
+    likes = cursor.fetchone()[0]
+
+    update.message.reply_text(
+        f"📊 Статистика\n\n"
+        f"👤 Пользователей: {users}\n"
+        f"❤️ Лайков: {likes}"
+    )
+
+# =========================
+# HELP
+# =========================
+
+def help_command(update, context):
+
+    update.message.reply_text(
+        "💎 Apsny Love Ultimate Premium\n\n"
+        "❤️ Лайки\n"
+        "💘 Взаимные лайки\n"
+        "👀 Кто лайкнул\n"
+        "⭐ Избранное\n"
+        "🌙 Night Match\n"
+        "🎵 Музыкальный вайб\n"
+        "🏆 Топ недели\n"
+        "📍 Поиск по городу"
+    )
 
 # =========================
 # SKIP
