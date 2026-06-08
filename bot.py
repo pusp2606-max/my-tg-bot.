@@ -1,7 +1,9 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, FSInputFile
+from remix import make_remix
+import os
 
 from config import BOT_TOKEN
 
@@ -16,12 +18,31 @@ async def start(message: Message):
 
 @dp.message()
 async def audio(message: Message):
-    if message.audio:
-        await message.answer("⏳ Получил трек, начинаю обработку...")
-        # Здесь позже будет вызов remix.py
-        await message.answer("✅ Ремикс готов!")
-    else:
-        await message.answer("Пришли MP3-файл.")
+    if not message.audio:
+        await message.answer("🎵 Пришли MP3-файл.")
+        return
+
+    os.makedirs("downloads", exist_ok=True)
+
+    telegram_file = await bot.get_file(message.audio.file_id)
+
+    input_path = f"downloads/{message.audio.file_name}"
+
+    await bot.download_file(
+        telegram_file.file_path,
+        destination=input_path
+    )
+
+    await message.answer("⏳ Создаю ремикс...")
+
+    output = make_remix(input_path)
+
+    audio = FSInputFile(output)
+
+    await message.answer_audio(
+        audio,
+        caption="🔥 Hardtekk Remix Ready!"
+    )
 
 async def main():
     await dp.start_polling(bot)
