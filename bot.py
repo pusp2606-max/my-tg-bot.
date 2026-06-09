@@ -1,56 +1,57 @@
-import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.filters import CommandStart
-from aiogram.types import Message, FSInputFile
-from remix import make_remix
+import logging
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.types import FSInputFile
+import numpy as np
+from pydub import AudioSegment
+from pydub.effects import normalize
 import os
 
-from config import BOT_TOKEN
-
-print("TOKEN =", BOT_TOKEN)   # ← добавь эту строку
-
-bot = Bot(BOT_TOKEN)
+# Твой токен от BotFather
+TOKEN = "8851735547:AAFGzJFkAMnKFHud3i8lMV9gxN6AqeofGlA"
+bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+def process_hardtekk(input_path: str, output_path: str):
+    """Ядро обработки Hardtekk."""
+    audio = AudioSegment.from_file(input_path)
+    samples = np.array(audio.get_array_of_samples())
+    
+    # Жесткий клиппинг (агрессивный звук)
+    max_val = np.iinfo(samples.dtype).max
+    threshold = max_val * 0.8  # Порог среза
+    samples = np.clip(samples, -threshold, threshold)
+    
+    audio = audio._spawn(samples.tobytes())
+    audio = normalize(audio + 6.0) # Буст громкости
+    audio.export(output_path, format="wav")
 
-@dp.message(CommandStart())
-async def start(message: Message):
-    await message.answer(
-        "🎵 Отправь MP3, и я начну делать Hardtekk-ремикс."
-    )
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer("Привет! Пришли мне аудиофайл, и я сделаю из него Hardtekk.")
 
-
-@dp.message()
-async def audio(message: Message):
-    if not message.audio:
-        await message.answer("🎵 Пришли MP3-файл.")
-        return
-
-    os.makedirs("downloads", exist_ok=True)
-
-    telegram_file = await bot.get_file(message.audio.file_id)
-    input_path = f"downloads/{message.audio.file_name}"
-
-    await bot.download_file(
-        telegram_file.file_path,
-        destination=input_path
-    )
-
-    await message.answer("⏳ Создаю ремикс...")
-
-    output = make_remix(input_path)
-
-    audio = FSInputFile(output)
-
-    await message.answer_audio(
-        audio,
-        caption="🔥 Hardtekk Remix Ready!"
-    )
-
-
-async def main():
-    await dp.start_polling(bot)
-
+@dp.message(F.audio | F.voice)
+async def handle_audio(message: types.Message):
+    # Получаем файл из сообщения
+    file_id = message.audio.file_id if message.audio else message.voice.file_id
+    file = await bot.get_file(file_id)
+    
+    input_filename = f"input_{file_id}.ogg"
+    output_filename = f"hardtekk_{file_id}.wav"
+    
+    await bot.download_file(file.file_path, input_filename)
+    await message.answer("Обрабатываю звук в стиле Hardtekk...")
+    
+    # Обработка
+    process_hardtekk(input_filename, output_filename)
+    
+    # Отправка результата
+    await message.reply_audio(audio=FSInputFile(output_filename), caption="Твой Hardtekk готов!")
+    
+    # Удаление временных файлов
+    os.remove(input_filename)
+    os.remove(output_filename)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("Бот запущен...")
+    dp.run_polling(bot)
