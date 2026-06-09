@@ -1,48 +1,32 @@
-import numpy as np
-from pydub import AudioSegment
-from pydub.effects import normalize
+import subprocess
+import os
+import uuid
+import random
 
-class HardtekkProcessor:
-    """
-    Профессиональный процессор для Hardtekk сэмплов.
-    Реализует жесткий клиппинг и нормализацию.
-    """
-    def __init__(self, file_path: str):
-        self.audio = AudioSegment.from_file(file_path)
-
-    def apply_hard_distortion(self, threshold_db: float = -3.0):
-        """Создает характерный перегруженный звук (клиппинг)."""
-        # Превращаем в массив для математической обработки
-        samples = np.array(self.audio.get_array_of_samples())
-        
-        # Хардкорный клиппинг
-        max_val = np.iinfo(samples.dtype).max
-        threshold = max_val * (10 ** (threshold_db / 20))
-        
-        samples = np.clip(samples, -threshold, threshold)
-        
-        self.audio = self.audio._spawn(samples.tobytes())
-        return self
-
-    def boost_punch(self, gain_db: float = 6.0):
-        """Усиление транзиентов (панча)."""
-        self.audio = self.audio + gain_db
-        return self
-
-    def export(self, output_path: str):
-        """Сохранение результата в WAV (стандарт для диджеев)."""
-        self.audio = normalize(self.audio)
-        self.audio.export(output_path, format="wav")
-        print(f"Готово: {output_path}")
-
-def main():
-    # Пример использования для обработки бочки (kick)
-    processor = HardtekkProcessor("kick_raw.wav")
+def make_remix(input_file):
+    os.makedirs("output", exist_ok=True)
+    output_filename = f"{uuid.uuid4()}.mp3"
+    output_file = os.path.join("output", output_filename)
     
-    (processor
-     .boost_punch(gain_db=5.0)
-     .apply_hard_distortion(threshold_db=-2.0)
-     .export("kick_tekk_final.wav"))
+    # Случайная частота для кика (120-200 Гц)
+    freq = random.randint(120, 200)
+    
+    # Команда синтезирует кик прямо во время обработки
+    # -t 30 — ограничение времени, чтобы бот не уходил в бесконечный цикл
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f", "lavfi", "-i", f"sine=frequency={freq}:duration=0.15",
+        "-i", input_file,
+        "-filter_complex",
+        f"[0:a]asade=1:0.05:0.05,volume=1.5[kick];"
+        f"[1:a]atempo={round(random.uniform(1.3, 1.45), 2)},volume=0.6[music];"
+        "[music][kick]amix=inputs=2:dropout_transition=0:duration=shortest[aout]",
+        "-map", "[aout]",
+        "-t", "30",
+        "-b:a", "192k",
+        output_file
+    ]
 
-if __name__ == "__main__":
-    main()
+    subprocess.run(cmd, check=True)
+    return output_file
