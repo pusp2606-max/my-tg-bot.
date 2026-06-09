@@ -1,6 +1,1 @@
-aiogram==3.13.1
-python-dotenv
-ffmpeg-python
-librosa
-soundfile
-numpy
+aiogram
