@@ -7,14 +7,18 @@ import os
 
 from config import BOT_TOKEN
 
+print("TOKEN =", BOT_TOKEN)   # ← добавь эту строку
+
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher()
+
 
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
         "🎵 Отправь MP3, и я начну делать Hardtekk-ремикс."
     )
+
 
 @dp.message()
 async def audio(message: Message):
@@ -25,7 +29,6 @@ async def audio(message: Message):
     os.makedirs("downloads", exist_ok=True)
 
     telegram_file = await bot.get_file(message.audio.file_id)
-
     input_path = f"downloads/{message.audio.file_name}"
 
     await bot.download_file(
@@ -44,8 +47,10 @@ async def audio(message: Message):
         caption="🔥 Hardtekk Remix Ready!"
     )
 
+
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
