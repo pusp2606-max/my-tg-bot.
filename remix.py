@@ -1,8 +1,11 @@
 import subprocess
 import os
+
 def make_remix(input_file):
     os.makedirs("output", exist_ok=True)
+
     output_file = "output/remix.mp3"
+
     cmd = [
         "ffmpeg",
         "-y",
@@ -13,13 +16,27 @@ def make_remix(input_file):
         "320k",
         output_file
     ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True
-    )
+
+    print("START FFMPEG")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+    except subprocess.TimeoutExpired:
+        raise Exception("FFmpeg завис более 60 секунд")
+
+    print("END FFMPEG")
     print(result.stdout)
     print(result.stderr)
+
     if result.returncode != 0:
-        raise Exception("FFmpeg error")
+        raise Exception(result.stderr)
+
+    if not os.path.exists(output_file):
+        raise Exception("Файл ремикса не создан")
+
     return output_file
