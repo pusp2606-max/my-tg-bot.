@@ -7,7 +7,7 @@ def make_remix(input_file):
     output_file = "output/remix.mp3"
 
     cmd = [
-        "ffmpeg",
+        "/usr/bin/ffmpeg",
         "-y",
         "-i", input_file,
         "-filter:a",
